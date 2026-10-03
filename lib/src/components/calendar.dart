@@ -1081,17 +1081,19 @@ class _ShadCalendarState extends State<ShadCalendar> {
   void initState() {
     super.initState();
     assert(_debugAssertControllerVariant(widget.controller, widget.variant));
-    _controller ??= switch (widget.variant) {
-      ShadCalendarVariant.single => ShadCalendarController(
-        selected: widget.selected,
-      ),
-      ShadCalendarVariant.multiple => ShadCalendarController.multiple(
-        selected: widget.multipleSelected,
-      ),
-      ShadCalendarVariant.range => ShadCalendarController.range(
-        selected: widget.selectedRange,
-      ),
-    };
+    if (widget.controller == null) {
+      _controller ??= switch (widget.variant) {
+        ShadCalendarVariant.single => ShadCalendarController(
+          selected: widget.selected,
+        ),
+        ShadCalendarVariant.multiple => ShadCalendarController.multiple(
+          selected: widget.multipleSelected,
+        ),
+        ShadCalendarVariant.range => ShadCalendarController.range(
+          selected: widget.selectedRange,
+        ),
+      };
+    }
     controller.addListener(_handleControllerChanged);
 
     if (widget.initialMonth == null) {
@@ -1121,23 +1123,36 @@ class _ShadCalendarState extends State<ShadCalendar> {
     assert(_debugAssertControllerVariant(widget.controller, widget.variant));
     if (oldWidget.controller != widget.controller) {
       final previousController = oldWidget.controller ?? _controller;
+      final selected = previousController == null
+          ? widget.selected
+          : previousController.selected;
+      final multipleSelected =
+          previousController?.multipleSelected ?? widget.multipleSelected;
+      final selectedRange = previousController == null
+          ? widget.selectedRange
+          : previousController.selectedRange;
+      final visibleMonth = previousController?.visibleMonth ?? currentMonth;
       previousController?.removeListener(_handleControllerChanged);
       if (oldWidget.controller == null) {
         _controller?.dispose();
         _controller = null;
       }
-      _controller ??= switch (widget.variant) {
-        ShadCalendarVariant.single => ShadCalendarController(
-          selected: previousController?.selected ?? widget.selected,
-        ),
-        ShadCalendarVariant.multiple => ShadCalendarController.multiple(
-          selected:
-              previousController?.multipleSelected ?? widget.multipleSelected,
-        ),
-        ShadCalendarVariant.range => ShadCalendarController.range(
-          selected: previousController?.selectedRange ?? widget.selectedRange,
-        ),
-      };
+      if (widget.controller == null) {
+        _controller ??= switch (widget.variant) {
+          ShadCalendarVariant.single => ShadCalendarController(
+            selected: selected,
+            visibleMonth: visibleMonth,
+          ),
+          ShadCalendarVariant.multiple => ShadCalendarController.multiple(
+            selected: multipleSelected,
+            visibleMonth: visibleMonth,
+          ),
+          ShadCalendarVariant.range => ShadCalendarController.range(
+            selected: selectedRange,
+            visibleMonth: visibleMonth,
+          ),
+        };
+      }
       controller.addListener(_handleControllerChanged);
       _syncFromController(force: true);
       if (widget.initialMonth == null) {
@@ -1211,32 +1226,42 @@ class _ShadCalendarState extends State<ShadCalendar> {
   }
 
   void _handleControllerChanged() {
+    final selectionChanged = switch (widget.variant) {
+      ShadCalendarVariant.single => !setEquals(
+        selectedDays,
+        {if (controller.selected != null) controller.selected!.startOfDay},
+      ),
+      ShadCalendarVariant.multiple => !setEquals(
+        selectedDays,
+        controller.multipleSelected.map((date) => date.startOfDay).toSet(),
+      ),
+      ShadCalendarVariant.range =>
+        startRange != controller.selectedRange?.start ||
+            endRange != controller.selectedRange?.end,
+    };
+    final selectionTarget = switch (widget.variant) {
+      ShadCalendarVariant.single => controller.selected,
+      ShadCalendarVariant.multiple => controller.multipleSelected.firstOrNull,
+      ShadCalendarVariant.range => controller.selectedRange?.start,
+    };
+    final target = selectionChanged && selectionTarget != null
+        ? selectionTarget
+        : controller.visibleMonth;
     var viewChanged = false;
-    if (controller.visibleMonth != null) {
-      final targetMonth = controller.visibleMonth!.startOfMonth;
+    if (target != null) {
+      final targetMonth = target.startOfMonth;
       final visibleMonths = datesModels.map((m) => m.month.startOfMonth);
       if (!visibleMonths.contains(targetMonth)) {
         currentMonth = targetMonth;
         generateDates();
         viewChanged = true;
       }
-    } else {
-      final target = switch (widget.variant) {
-        ShadCalendarVariant.single => controller.selected,
-        ShadCalendarVariant.multiple => controller.multipleSelected.firstOrNull,
-        ShadCalendarVariant.range => controller.selectedRange?.start,
-      };
-      if (target != null) {
-        final targetMonth = target.startOfMonth;
-        final visibleMonths = datesModels.map((m) => m.month.startOfMonth);
-        if (!visibleMonths.contains(targetMonth)) {
-          currentMonth = targetMonth;
-          generateDates();
-          viewChanged = true;
-        }
-      }
     }
     _syncFromController(force: viewChanged);
+    if (viewChanged) {
+      controller.visibleMonth = currentMonth;
+      widget.onMonthChanged?.call(currentMonth);
+    }
   }
 
   void _syncFromController({bool force = false}) {

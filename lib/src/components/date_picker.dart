@@ -976,9 +976,9 @@ class _ShadDatePickerState extends State<ShadDatePicker> {
 
   void _syncCalendarController() {
     _calendarController
-      ?..selected = selected
-      ..selectedRange = selectedRange
-      ..visibleMonth = _visibleMonth;
+      ?..visibleMonth = _visibleMonth
+      ..selected = selected
+      ..selectedRange = selectedRange;
   }
 
   @override
@@ -1060,6 +1060,17 @@ class _ShadDatePickerState extends State<ShadDatePicker> {
       ShadDatePickerVariant.single => newSelected != selected,
       ShadDatePickerVariant.range => newRange != selectedRange,
     };
+    final selectionTarget = switch (widget.variant) {
+      ShadDatePickerVariant.single => newSelected,
+      ShadDatePickerVariant.range => newRange?.start,
+    };
+    final visibleMonth =
+        selectionChanged &&
+            !_suppressControllerCallback &&
+            newVisibleMonth == _visibleMonth &&
+            selectionTarget != null
+        ? selectionTarget.startOfMonth
+        : newVisibleMonth;
     if (newSelected == selected &&
         newRange == selectedRange &&
         newVisibleMonth == _visibleMonth) {
@@ -1068,8 +1079,11 @@ class _ShadDatePickerState extends State<ShadDatePicker> {
     setState(() {
       selected = newSelected;
       selectedRange = newRange;
-      _visibleMonth = newVisibleMonth;
+      _visibleMonth = visibleMonth;
     });
+    if (visibleMonth != newVisibleMonth) {
+      controller.visibleMonth = visibleMonth;
+    }
     _syncCalendarController();
     if (_suppressControllerCallback || !selectionChanged) return;
     switch (widget.variant) {

@@ -9,6 +9,205 @@ Widget createTestWidget(Widget child) {
 }
 
 void main() {
+  for (final variant in ShadCalendarVariant.values) {
+    ShadCalendarController createController(int month) => switch (variant) {
+      ShadCalendarVariant.single => ShadCalendarController(
+        selected: DateTime(2024, month, 17),
+      ),
+      ShadCalendarVariant.multiple => ShadCalendarController.multiple(
+        selected: [DateTime(2024, month, 17)],
+      ),
+      ShadCalendarVariant.range => ShadCalendarController.range(
+        selected: ShadDateTimeRange(
+          start: DateTime(2024, month, 17),
+          end: DateTime(2024, month, 19),
+        ),
+      ),
+    };
+
+    for (final startsInternal in [false, true]) {
+      testWidgets(
+        '$variant calendar retains selection after controller removal '
+        'with startsInternal=$startsInternal',
+        (tester) async {
+          final first = createController(1);
+          final replacement = createController(6);
+          addTearDown(first.dispose);
+          addTearDown(replacement.dispose);
+          Future<void> pump(ShadCalendarController? controller) async {
+            await tester.pumpWidget(
+              createTestWidget(
+                ShadCalendar.raw(
+                  variant: variant,
+                  controller: controller,
+                  initialMonth: DateTime(2024, 6),
+                ),
+              ),
+            );
+          }
+
+          if (startsInternal) await pump(null);
+          await pump(first);
+          await pump(replacement);
+          await pump(null);
+          final day = tester.widget<ShadButton>(
+            find.widgetWithText(ShadButton, '17'),
+          );
+          expect(day.variant, ShadButtonVariant.primary);
+          first.selected = DateTime(2024, 7, 17);
+          replacement.visibleMonth = DateTime(2024, 7);
+          await tester.pumpAndSettle();
+          expect(find.text('June 2024'), findsOneWidget);
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+
+    testWidgets('$variant calendar keeps a cleared selection on removal', (
+      tester,
+    ) async {
+      final controller = createController(6);
+      addTearDown(controller.dispose);
+      Future<void> pump(ShadCalendarController? current) async {
+        await tester.pumpWidget(
+          createTestWidget(
+            ShadCalendar.raw(
+              variant: variant,
+              controller: current,
+              selected: DateTime(2024, 6, 17),
+              multipleSelected: [DateTime(2024, 6, 17)],
+              selectedRange: ShadDateTimeRange(
+                start: DateTime(2024, 6, 17),
+                end: DateTime(2024, 6, 19),
+              ),
+              initialMonth: DateTime(2024, 6),
+            ),
+          ),
+        );
+      }
+
+      await pump(controller);
+      switch (variant) {
+        case ShadCalendarVariant.single:
+          controller.selected = null;
+        case ShadCalendarVariant.multiple:
+          controller.multipleSelected = [];
+        case ShadCalendarVariant.range:
+          controller.selectedRange = null;
+      }
+      await tester.pumpAndSettle();
+      await pump(null);
+      expect(
+        tester
+            .widget<ShadButton>(find.widgetWithText(ShadButton, '17'))
+            .variant,
+        ShadButtonVariant.ghost,
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('$variant selection follows manual calendar navigation', (
+      tester,
+    ) async {
+      final controller = createController(1);
+      addTearDown(controller.dispose);
+      final months = <DateTime>[];
+      await tester.pumpWidget(
+        createTestWidget(
+          ShadCalendar.raw(
+            variant: variant,
+            controller: controller,
+            onMonthChanged: months.add,
+          ),
+        ),
+      );
+      await tester.tap(find.byIcon(LucideIcons.chevronRight));
+      await tester.pumpAndSettle();
+      expect(find.text('February 2024'), findsOneWidget);
+      switch (variant) {
+        case ShadCalendarVariant.single:
+          controller.selected = DateTime(2024, 6, 17);
+        case ShadCalendarVariant.multiple:
+          controller.multipleSelected = [DateTime(2024, 6, 17)];
+        case ShadCalendarVariant.range:
+          controller.selectedRange = ShadDateTimeRange(
+            start: DateTime(2024, 6, 17),
+            end: DateTime(2024, 6, 19),
+          );
+      }
+      await tester.pumpAndSettle();
+      expect(find.text('June 2024'), findsOneWidget);
+      expect(controller.visibleMonth, DateTime(2024, 6));
+      expect(months, [DateTime(2024, 2), DateTime(2024, 6)]);
+      controller.visibleMonth = DateTime(2024, 7);
+      await tester.pumpAndSettle();
+      expect(find.text('July 2024'), findsOneWidget);
+    });
+  }
+
+  for (final variant in ShadDatePickerVariant.values) {
+    testWidgets('$variant picker selection follows manual navigation', (
+      tester,
+    ) async {
+      final controller = switch (variant) {
+        ShadDatePickerVariant.single => ShadCalendarController(
+          selected: DateTime(2024, 1, 15),
+        ),
+        ShadDatePickerVariant.range => ShadCalendarController.range(
+          selected: ShadDateTimeRange(
+            start: DateTime(2024, 1, 15),
+            end: DateTime(2024, 1, 17),
+          ),
+        ),
+      };
+      addTearDown(controller.dispose);
+      final changes = <Object?>[];
+      await tester.pumpWidget(
+        createTestWidget(
+          ShadDatePicker.raw(
+            variant: variant,
+            controller: controller,
+            width: 500,
+            onChanged: changes.add,
+            onRangeChanged: changes.add,
+          ),
+        ),
+      );
+      await tester.tap(find.byType(ShadButton));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(LucideIcons.chevronRight));
+      await tester.pumpAndSettle();
+      expect(find.text('February 2024'), findsOneWidget);
+      final range = ShadDateTimeRange(
+        start: DateTime(2024, 6, 17),
+        end: DateTime(2024, 6, 19),
+      );
+      switch (variant) {
+        case ShadDatePickerVariant.single:
+          controller.selected = DateTime(2024, 6, 17);
+        case ShadDatePickerVariant.range:
+          controller.selectedRange = range;
+      }
+      await tester.pumpAndSettle();
+      expect(find.text('June 2024'), findsOneWidget);
+      expect(controller.visibleMonth, DateTime(2024, 6));
+      expect(changes, [
+        if (variant == ShadDatePickerVariant.single)
+          DateTime(2024, 6, 17)
+        else
+          range,
+      ]);
+      controller.visibleMonth = DateTime(2024, 7);
+      await tester.pumpAndSettle();
+      expect(find.text('July 2024'), findsOneWidget);
+      expect(changes.length, 1);
+      await tester.tap(find.text('21'));
+      await tester.pumpAndSettle();
+      expect(find.text('July 2024'), findsOneWidget);
+      expect(changes.length, 2);
+    });
+  }
+
   testWidgets('controller selection moves the calendar to another month', (
     tester,
   ) async {
